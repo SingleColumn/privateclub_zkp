@@ -1,4 +1,4 @@
-# PRD (Draft) — Member-Shared Proof Credential (Mock UIs + Python Flow Simulation)
+# PRD (Draft) — Proof of Funds Credential for private club (Mock UIs + Python Flow Simulation)
 
 **Version:** 0.2  
 **Date:** 2026-02-25  
@@ -8,9 +8,9 @@
 
 ## 1) Context and problem
 
-The club is invitation-only. Members share business and investment opportunities. Trust and deal velocity suffer because some members pretend to have funds but do not. The goal is to **filter posers and reduce nosy behavior** with a lightweight proof mechanism.
+The club is invitation-only. Members share business and investment opportunities. Trust and deal velocity suffer because some members pretend to have money to invest (funds) but do not. The goal is to **filter posers and reduce nosy behavior** with a lightweight proof mechanism.
 
-A key privacy requirement: members must be able to **proactively generate a credential** and **choose who to share it with**, avoiding interactive “prove ≥ X” requests that allow coordinated groups to infer balance ranges.
+A key privacy requirement: members must be able to **proactively generate a credential** and **choose who to share it with**, avoiding interactive or reactive “prove funds ≥ X” requests from other club members that could allow coordinated groups to infer balance ranges.
 
 ---
 
@@ -22,7 +22,7 @@ A key privacy requirement: members must be able to **proactively generate a cred
 3. **Privacy-preserving:** Credential reveals only a **coarse tier claim** (e.g., “≥ €250k”) and a timestamp—no exact balances, no account identifiers.
 4. **Mockable:** The behavior is specified clearly enough for UI mocks and a Python simulation.
 
-### Non-goals (for this stage)
+### Non-goals for this stage
 - Integrations with real PSD2 providers/banks.
 - Club-issued credentials or server-side issuance.
 - Verifier-side validation of PSD2 session data with providers.
@@ -41,7 +41,7 @@ The credential is designed to be:
 - **Selective share:** member chooses recipients (e.g., share link/token in chat).
 - **Timestamped:** verifier can decide whether the credential is “recent enough” for their context.
 
-**Note on recency:** Credentials do **not** need to expire in this stage. The credential includes an `issued_at` timestamp, and the verifier (human + UI) applies a policy such as “must be within the last 24h” or “within the last 60 minutes” depending on the seriousness of the conversation.
+**Note on recency:** Credentials do **not** need to expire in this stage. The credential includes an `issued_at` timestamp, and the verifier decides if the credential is recent enough.
 
 ---
 
@@ -49,12 +49,20 @@ The credential is designed to be:
 
 Only two screens must be mock-designed now.
 
+## Visual design guidelines (for mocks)
+
+- **Overall style**: minimalist, elegant, low-noise UI.
+- **Theme**: dark background with high-contrast, non-neon accent colors.
+- **Typography**: clean sans-serif; avoid playful fonts.
+- **Tone**: professional and club-like, not a busy “fintech dashboard”.
+- **Layout**: few primary elements per screen, clear hierarchy, generous spacing.
+
 ### A) Member screen: “Generate Proof Credential”
 Purpose: member chooses a tier and generates a shareable credential.
 
 **UI requirements**
 - Tier selection (coarse tiers only, configurable):
-  - Example: ≥ €50k, ≥ €250k, ≥ €1m, ≥ €5m
+  - Example: ≥ €250k, ≥ €500k, ≥ €1m, ≥ €2.5m
 - Recency display (e.g., “Timestamp: now” after generation)
 - Integrity status indicator (e.g., “Device integrity: OK”)
 - Primary action: **Generate credential**
@@ -79,6 +87,9 @@ Purpose: verifier receives a credential token and verifies it.
   - Issued at / age (e.g., “Issued 2h ago”)
   - Integrity status (OK / FAIL / UNSUPPORTED)
 - “Recency guidance” UI element (e.g., text: “Decide if this is recent enough for your needs.”)
+
+**Preferred verifier flow (link-first UX)**  
+When a verifier receives a credential link (e.g. from a messaging app), **clicking the link** should open the verifier experience (app or web) with the credential **already loaded** from the URL. The verifier then sees the credential and can run verification with one action (e.g. “Verify”); no copy-paste of the link or token should be required. Paste and QR remain as fallbacks when the verifier does not have the link in clickable form.
 
 ---
 
@@ -107,10 +118,10 @@ Credentials are **not public**. A member shares a credential intentionally with 
 ```json
 {
   "tiers": [
-    {"id": "TIER_50K",  "threshold": 50000,   "currency": "EUR", "label": "≥ €50k"},
-    {"id": "TIER_250K", "threshold": 250000,  "currency": "EUR", "label": "≥ €250k"},
-    {"id": "TIER_1M",   "threshold": 1000000, "currency": "EUR", "label": "≥ €1m"},
-    {"id": "TIER_5M",   "threshold": 5000000, "currency": "EUR", "label": "≥ €5m"}
+    {"id": "TIER_250K", "threshold": 250000,   "currency": "EUR", "label": "≥ €250k"},
+    {"id": "TIER_500K", "threshold": 500000,   "currency": "EUR", "label": "≥ €500k"},
+    {"id": "TIER_1M",   "threshold": 1000000,  "currency": "EUR", "label": "≥ €1m"},
+    {"id": "TIER_2_5M", "threshold": 2500000, "currency": "EUR", "label": "≥ €2.5m"}
   ]
 }
 ```
@@ -167,28 +178,9 @@ The simulation should mimic two separate devices:
 A third file may orchestrate an end-to-end demo:
 - `demo_flow.py` (creates mock member balance, triggers member credential generation, passes token to verifier)
 
-### 7.2 Required functions (stubs mimicking ZKP)
+### 7.2 ZKP implementation
 
-#### Member-side “ZKP” functions
-- `zkp_setup()`  
-  Returns mock public parameters.
-- `zkp_prove(tier_threshold, account_snapshot, credential_payload)`  
-  Returns an opaque `zkp_proof` that **claims** `balance ≥ tier_threshold` and binds the claim to `credential_payload`.
-
-#### Verifier-side “ZKP” functions
-- `zkp_verify(public_params, credential_payload, zkp_proof)`  
-  Returns `True/False`.
-
-**Clarification: what “not cryptographic” means in this stage**  
-These functions are *API-shaped placeholders* for real zero-knowledge proof (ZKP) primitives. In this stage:
-- They do **not** implement real ZK circuits, SNARKs, range proofs, or cryptographic soundness.
-- They may use simple deterministic logic and hashing to mimic behavior and separation of concerns, e.g.:
-  - `zkp_prove(...)` returns `hash(credential_payload || tier_id || "PASS/FAIL")` or a structured string.
-  - `zkp_verify(...)` recomputes the expected value and checks it matches.
-- The objective is to simulate:
-  1) that **proving** happens on the “member device” with access to account snapshot data, and  
-  2) that **verification** happens on the “verifier device” using only the credential payload + proof + public params,  
-  so that UI flows and system boundaries can be developed before selecting/implementing real cryptography.
+See the document zkp_architecture.md.
 
 ### 7.3 Tokenization helpers
 - `encode_token(proof_package) -> str` (e.g., base64url JSON)
