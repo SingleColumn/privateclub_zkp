@@ -1,0 +1,87 @@
+{
+  "scenarios": [
+    {
+      "id": 1,
+      "description": "PASS: balance 350k, tier 250k",
+      "kind": "standard",
+      "member": {
+        "balance": 350000,
+        "tier_id": "TIER_250K"
+      },
+      "verifier": {
+        "allow_degraded_integrity": false
+      },
+      "include_in_batch": true
+    },
+    {
+      "id": 2,
+      "description": "FAIL: balance 350k, tier 1m (insufficient funds)",
+      "kind": "standard",
+      "member": {
+        "balance": 350000,
+        "tier_id": "TIER_1M"
+      },
+      "verifier": {
+        "allow_degraded_integrity": false
+      },
+      "include_in_batch": true
+    },
+    {
+      "id": 3,
+      "description": "FAIL: integrity status FAIL (strict vs allow degraded)",
+      "kind": "integrity_degraded",
+      "member": {
+        "balance": 500000,
+        "tier_id": "TIER_250K",
+        "integrity_status": "FAIL"
+      },
+      "verifier": {
+        "strict": {
+          "allow_degraded_integrity": false
+        },
+        "allow_degraded": {
+          "allow_degraded_integrity": true
+        }
+      },
+      "include_in_batch": true
+    },
+    {
+      "id": 4,
+      "description": "FAIL: corrupted / malformed token",
+      "kind": "corrupted_token",
+      "cases": [
+        {
+          "label": "invalid base64",
+          "token": "not-valid-base64!!!",
+          "allow_degraded_integrity": false
+        },
+        {
+          "label": "missing zkp_proof",
+          "token_kind": "missing_zkp_proof",
+          "allow_degraded_integrity": false
+        }
+      ],
+      "include_in_batch": true
+    },
+    {
+      "id": 5,
+      "description": "PASS with old timestamp (issued 10 days ago)",
+      "kind": "old_timestamp",
+      "member": {
+        "balance": 350000,
+        "tier_id": "TIER_250K",
+        "issued_at_offset_days": 10
+      },
+      "verifier": {
+        "allow_degraded_integrity": false
+      },
+      "include_in_batch": true
+    },
+    {
+      "id": 6,
+      "description": "Demo flow: single member generate -> verifier verify",
+      "kind": "demo",
+      "include_in_batch": false
+    }
+  ]
+}
