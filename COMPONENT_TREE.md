@@ -2,6 +2,9 @@
 
 Visual design: minimalist, elegant, dark theme. Few primary elements, clear hierarchy, generous spacing.
 
+Scope: this tree covers **only** the member-side “Generate Proof Credential” screen.  
+The verifier / receiving experience (including screenshot and forwarding warnings/notifications described in the PRD) is modeled separately and is **not** represented in this component tree.
+
 ---
 
 ## Tree

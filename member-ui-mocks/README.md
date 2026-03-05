@@ -2,6 +2,9 @@
 
 Mock UI for the Member “Generate Proof Credential” screen. Built with React + Vite + Tailwind. Design: minimalist, dark theme, high-contrast accents.
 
+This mock focuses **only** on the member-side generation flow (select tier → generate credential → share token/link/QR).  
+The **receiving/verifier experience** (including screenshot / forwarding notifications) is specified in the PRD and is **out of scope** for this mock project.
+
 ## Run
 
 ```bash

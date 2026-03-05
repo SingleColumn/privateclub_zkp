@@ -26,10 +26,55 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+# Ensure src/zkp_engine is on sys.path so we can import engine.py
+import sys
+
+_ROOT_DIR = Path(__file__).resolve().parent
+_ZKP_ENGINE_DIR = _ROOT_DIR / "src" / "zkp_engine"
+if _ZKP_ENGINE_DIR.is_dir():
+    _dir_str = str(_ZKP_ENGINE_DIR)
+    if _dir_str not in sys.path:
+        sys.path.insert(0, _dir_str)
+
+# Try the most likely import paths given the repo layout
 try:
-    from .engine import zkp_setup, zkp_prove, zkp_verify
+    # When src/zkp_engine is on sys.path
+    from engine import zkp_setup, zkp_prove, zkp_verify  # type: ignore
 except ImportError:
-    from engine import zkp_setup, zkp_prove, zkp_verify
+    try:
+        # If src is on sys.path but zkp_engine is a package
+        from zkp_engine.engine import zkp_setup, zkp_prove, zkp_verify  # type: ignore
+    except ImportError as e:  # pragma: no cover
+        raise ImportError(
+            "Could not import 'engine'. Expected it in 'src/zkp_engine/engine.py'. "
+            "Please run this script from the project root where src/zkp_engine/engine.py exists."
+        ) from e
+
+
+# ------------------------- Scenario set file -------------------------
+
+SIMULATION_SET_PATH = Path(__file__).with_name("simulation_set.json")
+
+
+def load_scenarios() -> List[Dict[str, Any]]:
+    """
+    Load simulation scenarios from simulation_set.json.
+    Each scenario is a dictionary; see simulation_set.json for structure.
+    """
+    if not SIMULATION_SET_PATH.exists():
+        raise FileNotFoundError(f"simulation_set.json not found next to {__file__}")
+    raw = json.loads(SIMULATION_SET_PATH.read_text(encoding="utf-8"))
+    scenarios = raw.get("scenarios")
+    if not isinstance(scenarios, list):
+        raise ValueError("simulation_set.json must contain a 'scenarios' list")
+    return scenarios
+
+
+def get_scenario_by_id(scenarios: List[Dict[str, Any]], scenario_id: int) -> Dict[str, Any]:
+    for s in scenarios:
+        if int(s.get("id")) == scenario_id:
+            return s
+    raise ValueError(f"Unknown scenario id: {scenario_id}")
 
 
 # ------------------------- Tier configuration (PRD §6.1) -------------------------
@@ -486,6 +531,115 @@ def run_scenarios(params: Dict[str, Any]) -> None:
         print()
 
 
+def run_scenario_from_set(params: Dict[str, Any], scenario: Dict[str, Any]) -> None:
+    """
+    Run a scenario described in simulation_set.json.
+    This does not depend on the hard-coded SCENARIO_MENU definitions.
+    """
+    from datetime import timedelta
+
+    scenario_id = scenario.get("id")
+    description = scenario.get("description", "")
+    kind = scenario.get("kind", "standard")
+
+    print(f"{scenario_id}. {description}")
+
+    if kind == "standard":
+        member_cfg = scenario.get("member", {})
+        verifier_cfg = scenario.get("verifier", {})
+        balance = int(member_cfg.get("balance", 0))
+        tier_id = str(member_cfg.get("tier_id", ""))
+
+        token, err = member_generate_token(
+            params,
+            balance=balance,
+            tier_id=tier_id,
+        )
+        allow_degraded = bool(verifier_cfg.get("allow_degraded_integrity", False))
+        res = verifier_verify(params, token or "", allow_degraded_integrity=allow_degraded)
+
+        print(f"   Member: {'token generated' if token else err}")
+        if token:
+            print(f"   Verifier: {res.status} - {res.reason}")
+            if res.tier_label:
+                print(f"   Tier: {_safe_label(res.tier_label)}, issued {res.age_human or '?'}")
+        else:
+            print("   Verifier: (no token to verify)")
+
+    elif kind == "integrity_degraded":
+        member_cfg = scenario.get("member", {})
+        verifier_cfg = scenario.get("verifier", {})
+        balance = int(member_cfg.get("balance", 0))
+        tier_id = str(member_cfg.get("tier_id", ""))
+        integrity_status = str(member_cfg.get("integrity_status", "FAIL"))
+
+        token, err = member_generate_token(
+            params,
+            balance=balance,
+            tier_id=tier_id,
+            integrity_status=integrity_status,
+        )
+
+        strict_cfg = verifier_cfg.get("strict", {})
+        allow_cfg = verifier_cfg.get("allow_degraded", {})
+
+        res_strict = verifier_verify(
+            params,
+            token or "",
+            allow_degraded_integrity=bool(strict_cfg.get("allow_degraded_integrity", False)),
+        )
+        res_allow = verifier_verify(
+            params,
+            token or "",
+            allow_degraded_integrity=bool(allow_cfg.get("allow_degraded_integrity", True)),
+        )
+
+        print(f"   Verifier (strict): {res_strict.status} - {res_strict.reason}")
+        print(f"   Verifier (allow degraded): {res_allow.status} - {res_allow.reason}")
+
+    elif kind == "corrupted_token":
+        cases = scenario.get("cases", [])
+        for case in cases:
+            label = case.get("label", "case")
+            token_value = case.get("token")
+            token_kind = case.get("token_kind")
+            allow_degraded = bool(case.get("allow_degraded_integrity", False))
+
+            if token_kind == "missing_zkp_proof":
+                token_value = encode_token({"credential_payload": {}, "token_version": "v1"})
+
+            print(f"   {label}")
+            res = verifier_verify(params, token_value or "", allow_degraded_integrity=allow_degraded)
+            print(f"      Verifier: {res.status} - {res.reason}")
+
+    elif kind == "old_timestamp":
+        member_cfg = scenario.get("member", {})
+        verifier_cfg = scenario.get("verifier", {})
+        balance = int(member_cfg.get("balance", 0))
+        tier_id = str(member_cfg.get("tier_id", ""))
+        offset_days = int(member_cfg.get("issued_at_offset_days", 10))
+
+        old_date = datetime.now(timezone.utc) - timedelta(days=offset_days)
+        token, err = member_generate_token(
+            params,
+            balance=balance,
+            tier_id=tier_id,
+            issued_at=old_date,
+        )
+        allow_degraded = bool(verifier_cfg.get("allow_degraded_integrity", False))
+        res = verifier_verify(params, token or "", allow_degraded_integrity=allow_degraded)
+
+        print(f"   Verifier: {res.status} - {res.reason}")
+        if res.tier_label:
+            print(f"   Tier: {_safe_label(res.tier_label)}, issued {res.age_human or '?'}")
+
+    elif kind == "demo":
+        demo_flow(params)
+        return
+
+    print("\n=== scenario complete ===")
+
+
 # ------------------------- Demo entrypoint -------------------------
 
 def demo_flow(params: Dict[str, Any]) -> None:
@@ -527,19 +681,85 @@ def demo_flow(params: Dict[str, Any]) -> None:
 
 
 if __name__ == "__main__":
-   
+
     params = zkp_setup(n_bits=32)
     params["strict_range_proof"] = True
-   
-    print(SCENARIO_MENU)
-    choice = input("Select scenario (1-6): ").strip()
-    if choice in ("1", "2", "3", "4", "5", "6"):
-        run_single_scenario(params, int(choice))
+
+    print("=== ZKP simulation ===\n")
+    print("Choose mode:")
+    print("  1. Manual input (balance + threshold)")
+    print("  2. Predefined scenario (from simulation_set.json)")
+    mode = input("Select mode (1-2): ").strip()
+
+    if mode == "1":
+        # Manual input mode: user provides balance and threshold directly.
+        print("\n--- Manual input mode ---")
+        try:
+            balance_str = input("Enter member balance (e.g., 350000): ").strip().replace("_", "")
+            balance = int(balance_str)
+        except ValueError:
+            print("Invalid balance. Please enter an integer amount (e.g., 350000).")
+            raise SystemExit(1)
+
+        try:
+            threshold_str = input(
+                "Enter tier threshold in EUR (e.g., 250000 for ≥ €250k): "
+            ).strip().replace("_", "")
+            threshold_value = int(threshold_str)
+        except ValueError:
+            print("Invalid threshold. Please enter an integer amount (e.g., 250000).")
+            raise SystemExit(1)
+
+        tier_id = None
+        for t in TIER_CONFIG["tiers"]:
+            if t["threshold"] == threshold_value:
+                tier_id = t["id"]
+                break
+
+        if tier_id is None:
+            print("No tier found with the specified threshold. Please check TIER_CONFIG.")
+            raise SystemExit(1)
+
+        token, err = member_generate_token(params, balance=balance, tier_id=tier_id)
+        if err:
+            print(f"Member error: {err}")
+        else:
+            print(f"Member generated token (balance={balance}, tier={tier_id})")
+            print(f"Token (first 80 chars): {token[:80]}...")
+            print()
+            result = verifier_verify(params, token)
+            print(f"Verifier: {result.status} - {result.reason}")
+            print(f"Tier: {_safe_label(result.tier_label)}, issued {result.age_human}")
+            print(f"Integrity: {result.integrity_status}")
+
+    elif mode == "2":
+        print("\n--- Scenario mode (simulation_set.json) ---")
+        try:
+            scenarios = load_scenarios()
+        except (FileNotFoundError, ValueError) as e:
+            print(f"Error loading scenarios: {e}")
+            raise SystemExit(1)
+
+        print("Available scenarios:")
+        for s in scenarios:
+            sid = s.get("id")
+            desc = s.get("description", "")
+            print(f"  {sid}. {desc}")
+
+        choice = input("Select scenario by id: ").strip()
+        try:
+            scenario_id = int(choice)
+            scenario = get_scenario_by_id(scenarios, scenario_id)
+        except (ValueError, TypeError):
+            print("Invalid choice. Please enter a valid numeric scenario id.")
+        else:
+            run_scenario_from_set(params, scenario)
+
     else:
-        print("Invalid choice. Please enter 1-6.")
-   
+        print("Invalid mode. Please enter 1 or 2.")
+
     generate_report = input("\nGenerate audit report? (y/n): ").strip().lower()
-   
+
     if generate_report in ("y", "yes"):
         report_path = _write_audit_report(params)
         print(f"Audit report written to {report_path}")

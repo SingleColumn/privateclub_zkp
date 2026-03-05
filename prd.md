@@ -107,6 +107,11 @@ Credentials are **not public**. A member shares a credential intentionally with 
 - Sharing the same credential with multiple people reveals the same tier—no incremental leakage.
 - Member may generate different credentials at different tiers, but this is an explicit choice.
 
+**Screenshot and forwarding behavior**
+- Screenshots and forwarding of a received credential are **discouraged**.
+- If a **receiving member** takes a screenshot of the credential view or uses a system/UI share action to forward the credential, the app **must display a notification** warning that this behavior may not respect the club’s commitment to confidentiality.
+- When such a screenshot or forwarding action is detected, the **member who originally shared the credential must also be notified** (e.g. in-app notification or activity entry such as “Your credential shared with @member-xyz was captured/forwarded on [timestamp]”).
+
 **Operational rule**
 - Credential tokens should be **opaque** (no readable tier/balance in the token itself). Tier is revealed only after verification/parsing inside the verifier app/script.
 
@@ -223,6 +228,6 @@ Verifier must check:
 
 1. **Device compromise / app tampering:** A skilled attacker may fake local balance inputs or bypass integrity checks. (Integrity attestation reduces risk but is not a guarantee.)
 2. **No external truth validation:** Without verifier-side PSD2 session validation or an issuer signature, the verifier ultimately trusts that the member device used genuine data.
-3. **Credential forwarding:** A recipient can forward the credential to others. Mitigation options (future): recipient-bound credentials, short-lived one-time tokens, watermarking.
+3. **Credential forwarding:** A recipient can forward the credential to others. Current mitigation: in-app warnings to the recipient and notifications to the original sharer when screenshot/forward events are detected. Additional options (future): recipient-bound credentials, short-lived one-time tokens, watermarking.
 4. **Tier leakage by design:** Coarse tiers still reveal some information (e.g., “≥ €250k”). This is a conscious tradeoff for utility.
 5. **Borrowed/temporary funds:** A member can temporarily inflate balances to generate a credential, then move funds away.
